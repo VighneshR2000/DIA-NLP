@@ -54,7 +54,7 @@ const handleSend = async () => {
   setIsTyping(true);
 
   try {
-    const response = await fetch("http://localhost:3000/dia/api", {
+    const response = await fetch("https://10.238.110.162/dia/api", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
