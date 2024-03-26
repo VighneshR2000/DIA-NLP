@@ -20,7 +20,6 @@ app.use(cors({
   credentials: true, 
 }));
 
-//app.options('/dia/api/sug', cors());
 
 
 app.use(bodyParser.json());
@@ -121,7 +120,6 @@ app.all('/dia/api', async (req, res) => {
 
 console.log(`Most similar question: ${mostSimilarQuestion}, Score: ${maxSimilarity}`);
 
-    
     // If a similar question was found in the database
    if (maxSimilarity > 0.5) {
       let query;
@@ -159,7 +157,7 @@ console.log(`Most similar question: ${mostSimilarQuestion}, Score: ${maxSimilari
       const result = await client.getChatCompletions(
         deploymentId,
         [{ role: 'user', content: userQuestion }],
-        { /* ...params */ }
+       
       );
 
       const aiAnswer = result.choices[0].message.content;
