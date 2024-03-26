@@ -1,44 +1,50 @@
-require('dotenv').config();
-const natural = require('natural');
 const express = require('express');
+const natural = require('natural');
 const bodyParser = require('body-parser');
 const sql = require('mssql');
-const cors = require('cors');
 const { OpenAIClient, AzureKeyCredential } = require('@azure/openai');
+const stringSimilarity = require('string-similarity');
+const tokenizer = new natural.WordTokenizer();
+const cors = require('cors');
+const axios = require('axios');
+const app = express();
 const os = require('os');
 
+app.use(express.json());
 
-const app = express();
-const corsOptions = {
-  origin: '*',
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-};
+app.use(bodyParser.json({ limit: '150mb' }));
+app.use(bodyParser.urlencoded({ limit: '100mb', extended: true }));
 
-app.use(cors(corsOptions));
-const port = process.env.PORT || 3000;
+app.use(cors({
+  origin: 'http://diabot.bida.equant.com:449',
+  credentials: true, 
+}));
+
+//app.options('/dia/api/sug', cors());
+
 
 app.use(bodyParser.json());
 
 // MSSQL configuration
 const config = {
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  server: process.env.DB_SERVER,
-  database: process.env.DB_DATABASE,
+  user: 'KBHD2348AI',
+  password: 'Success@12',
+  server: '10.238.115.209\\sql2016',
+  database: 'IBO_Mumbai',
   options: {
-    connectTimeout: 500000,
+    //connectTimeout: 500000, 
     encrypt: false,
     trustServerCertificate: true,
   },
 };
 
-// Azure OpenAI configuration
-const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
-const azureApiKey = process.env.AZURE_API_KEY;
-const deploymentId = process.env.AZURE_DEPLOYMENT_ID;
+// Azure OpenAI config
+const endpoint = 'https://obs-eu-swe-openai.openai.azure.com/';
+const azureApiKey = '0a1a69fdd0e74571a6e2cff2a2f46aec';
+const deploymentId = 'gpt-35-turbo-16k';
 const client = new OpenAIClient(endpoint, new AzureKeyCredential(azureApiKey));
 
-// Connect to SQL database
+// Connect to sql 
 sql.connect(config, (err) => {
   if (err) console.log(err);
 });
@@ -46,28 +52,18 @@ sql.connect(config, (err) => {
 
 
 
-
-// Function to get the username of the currently logged-in Windows user
-function getLoggedInUsername() {
-  return os.userInfo().username;
-}
-
-// console.log('Logged-in username:', getLoggedInUsername()); 
-const username = getLoggedInUsername();
-console.log('Username:', username);
+app.get('/dia/api/test', async (req, res) => {
+  res.send('Test');
+});
 
 
 // Function to log chats into the database
-// Modified logChat function to be asynchronous
 async function logChat(userQuestion, chatReply) {
 	
 	// Hardcoded username for testing purposes  
-  const hardcodedUsername = 'test_user';  
+  const hardcodedUsername = 'no_user';  
 	
   try {
-    const username = getLoggedInUsername();
-    console.log('Username to insert:', username);
-
     const pool = await sql.connect(config);
     console.log('Connected to the database.');
 
@@ -88,16 +84,13 @@ async function logChat(userQuestion, chatReply) {
 
 
 
-app.get('/dia/api/test', async (req, res) => {
-  res.send('Test');
-});
 
 // Chat endpoint
 app.all('/dia/api', async (req, res) => {
   const userQuestion = req.body.question;
   let dbAnswer;
 
-  // Check if a question is provided in the request body
+  // Check if a question is provided body
   if (!userQuestion) {
     return res.status(400).json({ error: 'Missing question in the request body' });
   }
@@ -115,7 +108,7 @@ app.all('/dia/api', async (req, res) => {
       tfidf.addDocument(question);
     });
 
-    // Calculate similarity for the user's question
+    // Calculate similarity for the users question
     let maxSimilarity = 0;
     let mostSimilarQuestion = '';
 
@@ -126,10 +119,11 @@ app.all('/dia/api', async (req, res) => {
       }
     });
 
-    console.log(`Most similar question: ${mostSimilarQuestion}, Score: ${maxSimilarity}`);
+console.log(`Most similar question: ${mostSimilarQuestion}, Score: ${maxSimilarity}`);
 
+    
     // If a similar question was found in the database
-    if (maxSimilarity > 0.5) {
+   if (maxSimilarity > 0.5) {
       let query;
       if (userQuestion.toLowerCase().includes('link')) {
         query = 'SELECT TOP 1 Link FROM DIA_QnA_Chatbot WHERE Question = @question';
@@ -158,17 +152,18 @@ app.all('/dia/api', async (req, res) => {
         dbAnswer = "Sorry, I couldn't find information on that topic.";
       }
 
-      await logChat(userQuestion, dbAnswer); // Logging the chat
+	  await logChat(userQuestion, dbAnswer); // Logging the chat
       res.type('application/json').json({ answer: dbAnswer });
     } else {
       // No similar question found, use Azure OpenAI
       const result = await client.getChatCompletions(
         deploymentId,
         [{ role: 'user', content: userQuestion }],
+        { /* ...params */ }
       );
 
       const aiAnswer = result.choices[0].message.content;
-      await logChat(userQuestion, aiAnswer); // Logging the chat
+	  await logChat(userQuestion, aiAnswer); // Logging the chat
       res.type('application/json').json({ answer: aiAnswer });
     }
   } catch (err) {
@@ -179,29 +174,8 @@ app.all('/dia/api', async (req, res) => {
 
 
 
-// Add a new endpoint for logging user interactions
-// app.post('/dia/api/log', async (req, res) => {
-//   const { userQuestion, chatReply } = req.body;
 
-//   try {
-//     const pool = await sql.connect(config);
-//     const query = 'INSERT INTO DIA_QnA_Chatbot_Logs (UserPrompt, ChatReply, Timestamp, Username) VALUES (@userQuestion, @chatReply, GETDATE(), @Username)';
-//     const result = await pool.request()
-//       .input('userQuestion', sql.NVarChar, userQuestion)
-//       .input('chatReply', sql.NVarChar, chatReply)
-//       .input('Username', sql.NVarChar, getLoggedInUsername())
-//       .query(query);
-
-//     console.log('Logged interaction:', result);
-//     res.status(200).send('Interaction logged successfully');
-//   } catch (error) {
-//     console.error('Error logging interaction:', error);
-//     res.status(500).send('Error logging interaction');
-//   }
-// });
-
-
-
+const port = process.env.PORT;
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
